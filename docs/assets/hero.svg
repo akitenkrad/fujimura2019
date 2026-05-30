@@ -1,0 +1,117 @@
+<!-- fujimura2019 hero. Vault SVG style contract (palette + dark mode). -->
+<svg width="100%" viewBox="0 0 900 300" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>Fujimura &amp; Hino (2019) — Silence &amp; Voice in the Organization</title>
+<desc>An LLM-agent ABM on a Watts–Strogatz organisational network reproduces the paper's SEM: psychological safety lowers the fear (Quiescent) motive, which raises the acquiescent (黙従) motive and suppresses voice, and acquiescence drives silence. Node colours show the prevailing silence motive across the team.</desc>
+<style>
+  .t  { font-family: -apple-system, "Helvetica Neue", "Hiragino Sans", sans-serif; font-size: 14px; fill: #2C2C2A; }
+  .ts { font-family: -apple-system, "Helvetica Neue", "Hiragino Sans", sans-serif; font-size: 13px; fill: #444441; }
+  .tl { font-family: -apple-system, "Helvetica Neue", "Hiragino Sans", sans-serif; font-size: 12px; font-weight: 600; fill: #534AB7; letter-spacing: 2px; }
+  .title { font-family: -apple-system, "Helvetica Neue", "Hiragino Sans", sans-serif; font-size: 28px; font-weight: 600; fill: #2C2C2A; }
+  .glab { font-family: -apple-system, "Helvetica Neue", "Hiragino Sans", sans-serif; font-size: 11px; font-weight: 500; fill: #888780; letter-spacing: 0.5px; }
+  .nlab { font-family: -apple-system, "Helvetica Neue", "Hiragino Sans", sans-serif; font-size: 11px; fill: #2C2C2A; }
+  .edge  { stroke: #C7C5BD; stroke-width: 1.2; opacity: 0.75; }
+  .chord { stroke: #534AB7; stroke-width: 1.2; opacity: 0.4; stroke-dasharray: 3 3; }
+  .node  { stroke: #FAFAF8; stroke-width: 1.5; }
+  .nAS { fill: #C0392B; }
+  .nQS { fill: #F4A259; }
+  .nPS { fill: #0F6E56; }
+  .nOS { fill: #534AB7; }
+  .nVOICE { fill: #FAFAF8; stroke: #0F6E56; stroke-width: 2.2; }
+  .box   { fill: #FAFAF8; stroke: #534AB7; stroke-width: 1.4; }
+  .pos   { stroke: #C0392B; stroke-width: 2; fill: none; }
+  .neg   { stroke: #0F6E56; stroke-width: 2; fill: none; }
+  @media (prefers-color-scheme: dark) {
+    .t  { fill: #E5E5E2; }
+    .ts { fill: #C7C5BD; }
+    .tl { fill: #AFA9EC; }
+    .title { fill: #E5E5E2; }
+    .glab { fill: #8C8B85; }
+    .nlab { fill: #E5E5E2; }
+    .edge  { stroke: #5F5E5A; }
+    .chord { stroke: #AFA9EC; }
+    .node  { stroke: #211F1C; }
+    .nAS { fill: #E06A5C; }
+    .nQS { fill: #FFB86B; }
+    .nPS { fill: #5DCAA5; }
+    .nOS { fill: #AFA9EC; }
+    .nVOICE { fill: #211F1C; stroke: #5DCAA5; }
+    .box   { fill: #211F1C; stroke: #AFA9EC; }
+    .pos   { stroke: #E06A5C; }
+    .neg   { stroke: #5DCAA5; }
+  }
+</style>
+
+<defs>
+  <marker id="ah-pos" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 Z" fill="#C0392B"/>
+  </marker>
+  <marker id="ah-neg" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+    <path d="M0,0 L6,3 L0,6 Z" fill="#0F6E56"/>
+  </marker>
+</defs>
+
+<!-- left: label + title -->
+<text x="40" y="56" class="tl">LLM-AGENT ABM · ORGANIZATIONAL SILENCE</text>
+<text x="40" y="92" class="title">Silence &amp; Voice in</text>
+<text x="40" y="124" class="title">the Organization</text>
+<text x="40" y="158" class="ts">Fujimura &amp; Hino (2019)</text>
+<text x="40" y="182" class="t">ψ →(−) fear →(+) acquiescence →(+) silence</text>
+<text x="40" y="206" class="glab">fear →(−) voice · 4 motives · agent-level β̃ (SEM)</text>
+<text x="40" y="230" class="glab">on a Watts–Strogatz organisational network</text>
+
+<!-- right top: SEM causal chain -->
+<g>
+  <!-- nodes -->
+  <rect class="box" x="500" y="38" width="78" height="34" rx="6"/>
+  <text x="539" y="59" class="nlab" text-anchor="middle">心理的安全 ψ</text>
+  <rect class="box" x="610" y="38" width="78" height="34" rx="6"/>
+  <text x="649" y="59" class="nlab" text-anchor="middle">怖れ f</text>
+  <rect class="box" x="720" y="38" width="92" height="34" rx="6"/>
+  <text x="766" y="59" class="nlab" text-anchor="middle">黙従 a</text>
+  <rect class="box" x="720" y="100" width="92" height="34" rx="6"/>
+  <text x="766" y="121" class="nlab" text-anchor="middle">沈黙</text>
+  <rect class="box" x="610" y="100" width="78" height="34" rx="6"/>
+  <text x="649" y="121" class="nlab" text-anchor="middle">発言</text>
+  <!-- edges -->
+  <line class="neg" x1="578" y1="55" x2="608" y2="55" marker-end="url(#ah-neg)"/>
+  <line class="pos" x1="688" y1="55" x2="718" y2="55" marker-end="url(#ah-pos)"/>
+  <line class="pos" x1="766" y1="72" x2="766" y2="98" marker-end="url(#ah-pos)"/>
+  <line class="neg" x1="649" y1="72" x2="649" y2="98" marker-end="url(#ah-neg)"/>
+</g>
+
+<!-- right bottom: Watts–Strogatz ring, nodes coloured by silence motive -->
+<g transform="translate(0,30)">
+  <line class="edge" x1="600" y1="180" x2="636" y2="188"/>
+  <line class="edge" x1="636" y1="188" x2="664" y2="210"/>
+  <line class="edge" x1="664" y1="210" x2="664" y2="240"/>
+  <line class="edge" x1="664" y1="240" x2="636" y2="262"/>
+  <line class="edge" x1="636" y1="262" x2="600" y2="270"/>
+  <line class="edge" x1="600" y1="270" x2="564" y2="262"/>
+  <line class="edge" x1="564" y1="262" x2="536" y2="240"/>
+  <line class="edge" x1="536" y1="240" x2="536" y2="210"/>
+  <line class="edge" x1="536" y1="210" x2="564" y2="188"/>
+  <line class="edge" x1="564" y1="188" x2="600" y2="180"/>
+  <line class="chord" x1="636" y1="188" x2="536" y2="240"/>
+  <line class="chord" x1="664" y1="240" x2="564" y2="188"/>
+
+  <circle class="node nAS"  cx="600" cy="180" r="8"/>
+  <circle class="node nQS"  cx="636" cy="188" r="8"/>
+  <circle class="node nAS"  cx="664" cy="210" r="8"/>
+  <circle class="nVOICE"    cx="664" cy="240" r="8"/>
+  <circle class="node nPS"  cx="636" cy="262" r="8"/>
+  <circle class="node nAS"  cx="600" cy="270" r="8"/>
+  <circle class="node nQS"  cx="564" cy="262" r="8"/>
+  <circle class="nVOICE"    cx="536" cy="240" r="8"/>
+  <circle class="node nOS"  cx="536" cy="210" r="8"/>
+  <circle class="node nQS"  cx="564" cy="188" r="8"/>
+</g>
+
+<!-- legend -->
+<g>
+  <circle class="node nAS" cx="556" cy="286" r="5"/><text x="566" y="290" class="glab">黙従</text>
+  <circle class="node nQS" cx="612" cy="286" r="5"/><text x="622" y="290" class="glab">怖れ</text>
+  <circle class="node nPS" cx="668" cy="286" r="5"/><text x="678" y="290" class="glab">配慮</text>
+  <circle class="node nOS" cx="724" cy="286" r="5"/><text x="734" y="290" class="glab">自己都合</text>
+  <circle class="nVOICE"   cx="792" cy="286" r="5"/><text x="802" y="290" class="glab">発言</text>
+</g>
+</svg>

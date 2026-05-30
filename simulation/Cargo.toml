@@ -1,0 +1,31 @@
+[package]
+name = "fujimura-silence-simulation"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "fujimura_silence"
+path = "src/lib.rs"
+
+[[bin]]
+name = "fujimura"
+path = "src/main.rs"
+
+[dependencies]
+rand        = { version = "0.8", features = ["small_rng"] }
+csv         = "1.3"
+serde       = { version = "1.0", features = ["derive"] }
+serde_json  = "1.0"
+clap        = { version = "4.5", features = ["derive"] }
+chrono      = "0.4"
+anyhow      = "1.0"
+
+# social-simulation framework (socsim) — 網モデル (Watts–Strogatz 小世界) + LLM 駆動
+# エージェント．藤村・日野 (2019) の SEM (心理的安全 → 怖れ → 黙従 → 沈黙 / 怖れ →
+# 発言) を WorldState + Mechanism (6-phase ループ) へ翻訳する．commit は Cargo.lock で固定．
+socsim-core    = { git = "https://github.com/akitenkrad/rs-social-simulation-tools", branch = "main", package = "socsim-core" }
+socsim-engine  = { git = "https://github.com/akitenkrad/rs-social-simulation-tools", branch = "main", package = "socsim-engine" }
+socsim-net     = { git = "https://github.com/akitenkrad/rs-social-simulation-tools", branch = "main", package = "socsim-net" }
+socsim-llm     = { git = "https://github.com/akitenkrad/rs-social-simulation-tools", branch = "main", package = "socsim-llm", features = ["live"] }
+socsim-metrics = { git = "https://github.com/akitenkrad/rs-social-simulation-tools", branch = "main", package = "socsim-metrics" }
+socsim-results = { git = "https://github.com/akitenkrad/rs-social-simulation-tools", branch = "main", package = "socsim-results" }

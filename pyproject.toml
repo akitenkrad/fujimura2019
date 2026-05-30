@@ -1,0 +1,13 @@
+[project]
+name = "fujimura2019-workspace"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "fujimura-tools",
+]
+
+[tool.uv.workspace]
+members = ["tools"]
+
+[tool.uv.sources]
+fujimura-tools = { workspace = true }
