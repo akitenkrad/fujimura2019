@@ -9,8 +9,8 @@ A fast, LLM-free, bit-deterministic baseline reproducing the four SEM path signs
 ```bash
 cargo run --release -- run --decision-mode rule --locale ja-JP \
     --n-teams 5 --team-size 80 --t-max 12 --runs 30 --seed 2019
-uv run fujimura-tools fit-sem --results-dir results/latest
-uv run fujimura-tools visualize --results-dir results/latest
+uv run fujimura-tools fit-sem
+uv run fujimura-tools visualize
 ```
 
 ## 2. Japanese baseline (LLM mode)
@@ -22,7 +22,7 @@ export OLLAMA_HOST=http://localhost:11434
 export OLLAMA_MODEL=llama3.1
 cargo run --release -- run --decision-mode llm --locale ja-JP \
     --cache-path .llm_cache/cache.json --t-max 12 --runs 30 --seed 2019
-uv run fujimura-tools fit-sem --results-dir results/latest
+uv run fujimura-tools fit-sem
 ```
 
 ## 3. Sensitivity analysis
@@ -33,7 +33,7 @@ Sweep the structural conditions that govern the path coefficients: hierarchy str
 cargo run --release -- sweep --decision-mode rule --locale ja-JP \
     --n-levels-values 2,3,4,5 --eta-min 0.3 --eta-max 0.9 --eta-step 0.1 \
     --network-beta-values 0.05,0.10,0.20 --runs 20 --seed 2019
-uv run fujimura-tools visualize-sweep --results-dir results/latest
+uv run fujimura-tools visualize-sweep
 ```
 
 The hierarchy-strength forest plot and the (η × β) climate heatmap show how the silence/voice levels and the global silence spiral respond to organisational structure.

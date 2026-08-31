@@ -12,7 +12,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{BufWriter, Write as _};
+use std::io::BufWriter;
 use std::rc::Rc;
 
 use csv::Writer;
@@ -346,66 +346,21 @@ fn compute_corr_silence_voice(rows: &[AgentPanelRow]) -> f64 {
 // Output writers
 // --------------------------------------------------------------------------- //
 
-/// Create the output directory.
-pub fn ensure_output_dir(output_dir: &str) {
-    socsim_results::ensure_dir(output_dir).expect("failed to create output directory");
-}
-
-/// Write `agent_panel.csv` (long format).
-pub fn save_agent_panel(rows: &[AgentPanelRow], output_dir: &str) {
-    let path = format!("{output_dir}/agent_panel.csv");
+/// Write `agent_panel.csv` (long format) into a run's `artifacts/` directory.
+///
+/// 表のまま `artifacts/` に置く．`motive` は acquiescent / quiescent / prosocial /
+/// opportunistic というラベルであって数ではないので指標にはできず，数の列だけを
+/// `metrics.csv` へ移すと 1 つの表が 2 ファイルに割れる — Python 側 (`fit-sem`) は
+/// 潜在状態と行動を同じ行から読んで SEM をフィットするので，割ると組み直せない．
+pub fn save_agent_panel(rows: &[AgentPanelRow], artifacts_dir: &str) {
+    std::fs::create_dir_all(artifacts_dir).expect("failed to create artifacts directory");
+    let path = format!("{artifacts_dir}/agent_panel.csv");
     let file = File::create(&path).expect("failed to create agent_panel.csv");
     let mut wtr = Writer::from_writer(BufWriter::new(file));
     for r in rows {
         wtr.serialize(r).expect("failed to write agent_panel row");
     }
     wtr.flush().expect("failed to flush agent_panel.csv");
-}
-
-/// Write `metrics.csv`.
-pub fn save_metrics(rows: &[MetricsRow], output_dir: &str) {
-    let path = format!("{output_dir}/metrics.csv");
-    let file = File::create(&path).expect("failed to create metrics.csv");
-    let mut wtr = Writer::from_writer(BufWriter::new(file));
-    for r in rows {
-        wtr.serialize(r).expect("failed to write metrics row");
-    }
-    wtr.flush().expect("failed to flush metrics.csv");
-}
-
-/// Build the `llm_meta.json` value from a result's [`MetadataCollector`].
-pub fn llm_meta_json(cfg: &Config, result: &SimulationResult) -> serde_json::Value {
-    let (fails, total) = result.parse_fail;
-    let parse_fail_rate = if total > 0 {
-        fails as f64 / total as f64
-    } else {
-        0.0
-    };
-    serde_json::json!({
-        "decision_mode": cfg.decision_mode.label(),
-        "model": result.llm_model,
-        "endpoint": result.llm_endpoint,
-        "temperature": cfg.llm.temperature,
-        "seed": result.seed,
-        "calls": result.metadata.total(),
-        "cache_hits": result.metadata.cache_hits(),
-        "cache_hit_rate": result.metadata.cache_hit_rate(),
-        "parse_failures": fails,
-        "parse_fail_rate": parse_fail_rate,
-        "determinism_note": "LLM output is outside socsim bit-reproducibility; the prompt->response \
-                             cache (temperature=0, (agent_id, t)-derived seed) is the reproducibility \
-                             mechanism. The deterministic socsim core (init, network, scheduling, the \
-                             7 non-LLM mechanisms) is bit-reproducible given the seed; rule mode makes \
-                             zero LLM calls."
-    })
-}
-
-/// Write an arbitrary JSON value to a file.
-pub fn write_json_file(value: &serde_json::Value, path: &str) {
-    let file = File::create(path).expect("failed to create JSON file");
-    let mut w = BufWriter::new(file);
-    let s = serde_json::to_string_pretty(value).expect("failed to serialise JSON");
-    w.write_all(s.as_bytes()).expect("failed to write JSON");
 }
 
 #[cfg(test)]

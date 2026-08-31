@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """fit_sem.py — estimate the ABM-induced SEM path coefficients β̃ (semopy).
 
-Reads `agent_panel.csv` (long: seed, t, agent_id, psafety, fear, acquiescent,
-voice, silence, motive), builds per-agent cross-sectional observations by
+Reads the agent panel (long: seed, t, agent_id, psafety, fear, acquiescent,
+voice, silence, motive) — pooled across the replicate child runs of one `run` —
+builds per-agent cross-sectional observations by
 time-averaging each latent state and each behaviour (skipping the all-neutral
 initial step t=0), then fits the paper's structural model
 
@@ -16,10 +17,13 @@ indices (CFI / GFI / RMSEA / χ²), and the silence ⊥ voice correlation
 (paper H5 r = .02; target |r| < .10). Falls back to per-path OLS (statsmodels-
 free, numpy) when semopy is unavailable or fails on the data.
 
-Writes `sem_fit.json` to the results directory.
+Writes `sem_fit.json` beside the run (`figures/<run_slug>/`), never into the run's
+`artifacts/` — `manifest.csv` is settled when the run finishes, so anything added
+afterwards would carry no hash and is not part of the record.
 
 Usage:
-    fujimura-tools fit-sem --results-dir results/latest
+    fujimura-tools fit-sem
+    fujimura-tools fit-sem --results-dir results/20260530_000000   # legacy も可
 """
 
 from __future__ import annotations
@@ -33,7 +37,7 @@ import sys
 import numpy as np
 import pandas as pd
 
-from socsim_tools.io import resolve_results_dir
+from fujimura_tools import runs
 
 # Paper anchors (design §5): path → (value, expected sign).
 PAPER_PATHS = {
@@ -187,15 +191,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fujimura-tools fit-sem", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--results-dir", "--results_dir", default=None)
+    parser.add_argument("--output-dir", "--output_dir", default=None)
     args = parser.parse_args(argv)
 
-    results_dir = str(resolve_results_dir(args.results_dir))
-    panel_path = os.path.join(results_dir, "agent_panel.csv")
-    if not os.path.exists(panel_path):
-        print(f"error: agent_panel.csv not found in {results_dir}", file=sys.stderr)
-        return 1
-
-    panel = pd.read_csv(panel_path)
+    run_dir = runs.resolve_run_dir(args.results_dir, subcommand="run")
+    output_dir = str(runs.analysis_output_dir(run_dir, args.output_dir))
+    panel = runs.pooled_panel(run_dir)
     agent = build_agent_frame(panel)
     agent_std = standardize(agent, ["psafety", "fear", "acquiescent", "voice", "silence"])
 
@@ -245,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
         "sign_match_total": len(anchors),
     }
 
-    out_path = os.path.join(results_dir, "sem_fit.json")
+    out_path = os.path.join(output_dir, "sem_fit.json")
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2, ensure_ascii=False)
 

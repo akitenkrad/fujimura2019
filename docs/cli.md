@@ -6,7 +6,7 @@ The `fujimura` binary has four subcommands. The decision mode is a mutually-excl
 
 ## `run`
 
-Single configuration. Pools `--runs` seeds into one `agent_panel.csv` / `metrics.csv`.
+Single configuration, run `--runs` times with derived seeds. Records a parent run declaring the condition and the replicate list, plus one `run-replicate` child per seed — each child holds that replicate's per-step `metrics.csv` and its `artifacts/agent_panel.csv`.
 
 | Flag | Default | Meaning |
 |------|---------|---------|
@@ -24,23 +24,23 @@ Single configuration. Pools `--runs` seeds into one `agent_panel.csv` / `metrics
 | `--p-retaliate` | 0.05 | per-agent per-step retaliation probability |
 | `--shock-t` | none | optional σ-shock step |
 | `--t-max` | 12 | horizon |
-| `--runs` | 1 | independent seeds (pooled) |
+| `--runs` | 1 | independent seeds (one child run each) |
 | `--seed` | 2019 | root seed |
 | `--llm-temperature` | 0.0 | LLM temperature |
 | `--llm-seed` | 0 | LLM seed offset |
 | `--llm-model` | `llama3.1` | advisory model hint |
 | `--cache-path` | `.llm_cache/cache.json` | prompt→response cache (LLM mode) |
-| `--output-dir` | `results` | output base |
+| `--output-dir` | `results` | runvault results root |
 
 ## `sweep`
 
-Cartesian product over `--n-levels-values × (η range) × --network-beta-values × seeds`, one row per cell in `sweep_summary.csv`.
+Cartesian product over `--n-levels-values × (η range) × --network-beta-values × seeds`. Records a parent run declaring the grid, plus one `sweep-point` child per cell. A cell's `--runs` trials are `terminal` rows in that child's `events.jsonl` (one row per old `sweep_summary.csv` row); the child's `metrics.csv` holds the across-trial means. Only each trial's final step is observed, so a trial has no time series of its own — that is why trials are events here and replicates are runs under `run`.
 
 Key flags: `--n-levels-values 2,3,4,5`, `--eta-min/--eta-max/--eta-step`, `--network-beta-values 0.05,0.10,0.20`, `--runs`, `--t-max`, `--seed`.
 
 ## `cultural-compare`
 
-Runs the JP and EN locales side by side (each with its locale defaults) into one pooled `agent_panel.csv`, for the cultural-ablation comparison of the path coefficients.
+Runs the JP and EN locales side by side (each with its locale defaults), for the cultural-ablation comparison of the path coefficients. Records a parent run plus one `cultural-replicate` child per (locale, seed); the locale is in each child's `parameters`, so JP and EN rows are told apart by condition rather than by seed.
 
 Key flags: `--decision-mode`, `--n-teams`, `--team-size`, `--eta`, `--t-max`, `--runs`, `--seed`, `--cache-path`.
 

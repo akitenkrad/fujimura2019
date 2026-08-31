@@ -6,7 +6,7 @@
 
 ## `run`
 
-単一設定．`--runs` 個のシードを 1 つの `agent_panel.csv` / `metrics.csv` にプールする．
+単一設定を `--runs` 回，派生シードで繰り返す．条件と反復リストを宣言する親 run 1 本と，シードごとの `run-replicate` 子 run を記録する．子はそれぞれ自分の tick 単位 `metrics.csv` と `artifacts/agent_panel.csv` を持つ．
 
 | フラグ | 既定 | 意味 |
 |------|------|------|
@@ -34,13 +34,13 @@
 
 ## `sweep`
 
-`--n-levels-values × (η レンジ) × --network-beta-values × seeds` の直積．各セル 1 行を `sweep_summary.csv` に書く．
+`--n-levels-values × (η レンジ) × --network-beta-values × seeds` の直積．グリッドを宣言する親 run 1 本と，セルごとの `sweep-point` 子 run を記録する．セル内の `--runs` 本の試行は子の `events.jsonl` の `terminal` 行（旧 `sweep_summary.csv` の 1 行にあたる），子の `metrics.csv` は試行をまたいだ平均を持つ．sweep が見るのは各試行の最終ステップだけで，試行は自分の時系列を持たない — `run` では反復を run にし，ここでは試行をイベントにする理由がこれである．
 
 主フラグ：`--n-levels-values 2,3,4,5`，`--eta-min/--eta-max/--eta-step`，`--network-beta-values 0.05,0.10,0.20`，`--runs`，`--t-max`，`--seed`．
 
 ## `cultural-compare`
 
-JP と EN ロケールを（それぞれのロケール既定で）並走させ，1 つにプールした `agent_panel.csv` を書く．パス係数の文化 ablation 比較用．
+JP と EN ロケールを（それぞれのロケール既定で）並走させる．パス係数の文化 ablation 比較用．親 run 1 本と，(ロケール, シード) ごとの `cultural-replicate` 子 run を記録する．ロケールは子の `parameters` に入るので，JP と EN の行はシードではなく条件で見分けられる．
 
 主フラグ：`--decision-mode`，`--n-teams`，`--team-size`，`--eta`，`--t-max`，`--runs`，`--seed`，`--cache-path`．
 

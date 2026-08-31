@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """visualize.py — single-run visualization for Fujimura & Hino (2019).
 
-Reads `metrics.csv` (and, if present, `sem_fit.json`) from results/latest (or
-`--results-dir`) and produces:
+Reads the step metrics of a `run` (its replicate child runs) and, if present,
+`sem_fit.json`, and produces:
   (1) a time-series of silence_rate / voice_volume / climate_of_silence,
   (2) the silence-motive mix (4-motive) trajectory,
   (3) an estimated SEM path diagram (ψ → fear → acquiescent → silence, fear → voice).
 
+run ディレクトリは `runvault path --latest --subcommand run` が答える．反復は
+子 run に分かれているので，旧 `metrics.csv` と同じ «(seed, t) の表» は
+`fujimura_tools.runs.pooled_metrics` が組み直す (`runs.py` の冒頭を参照)．
+
 Usage:
     fujimura-tools visualize
-    fujimura-tools visualize --results-dir results/20260530_000000
+    fujimura-tools visualize --results-dir results/20260530_000000   # legacy も可
 """
 
 from __future__ import annotations
@@ -23,7 +27,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd  # noqa: E402
-from socsim_tools.io import resolve_results_dir  # noqa: E402
+
+from fujimura_tools import runs  # noqa: E402
 
 COLOR_BG = "#FAFAF8"
 COLOR_SILENCE = "#C0392B"
@@ -141,16 +146,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-dir", "--output_dir", default=None)
     args = parser.parse_args(argv)
 
-    results_dir = str(resolve_results_dir(args.results_dir))
-    output_dir = args.output_dir or results_dir
-    os.makedirs(output_dir, exist_ok=True)
+    run_dir = runs.resolve_run_dir(args.results_dir, subcommand="run")
+    output_dir = str(runs.analysis_output_dir(run_dir, args.output_dir))
 
-    metrics = pd.read_csv(os.path.join(results_dir, "metrics.csv"))
+    metrics = runs.pooled_metrics(run_dir)
     sem_fit = None
-    sem_path = os.path.join(results_dir, "sem_fit.json")
-    if os.path.exists(sem_path):
-        with open(sem_path, encoding="utf-8") as f:
-            sem_fit = json.load(f)
+    for candidate in (os.path.join(output_dir, "sem_fit.json"),
+                      os.path.join(str(run_dir), "sem_fit.json")):
+        if os.path.exists(candidate):
+            with open(candidate, encoding="utf-8") as f:
+                sem_fit = json.load(f)
+            break
 
     p1 = os.path.join(output_dir, "timeseries.png")
     p2 = os.path.join(output_dir, "motive_mix.png")

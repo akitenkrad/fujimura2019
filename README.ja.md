@@ -17,7 +17,7 @@ LLM 出力は socsim の bit 再現性の**外側**にあるため，設計は�
 - **決定論的 socsim コア** — 従業員初期化（原著の M/SD から潜在状態をサンプル），Watts–Strogatz ネットワーク生成，スケジューリング，7 つの決定論的メカニズム + ルールモードの `voice_decision_rule`．シード固定で bit 完全再現．`--decision-mode rule` は完全にここで完結し，LLM 呼び出しは**ゼロ**．
 - **非決定論的 LLM 層** — `voice_decision` のみ．`socsim-llm` の `CachingClient`（`hash(prompt+model)` → 応答キャッシュ），`temperature = 0`，`(agent_id, t)` 由来の固定シードで擬似決定論化．プロバイダ順序は **Ollama 第一 → OpenAI フォールバック**．
 
-キャッシュ（モデルではない）が再現性の機構である．温暖キャッシュは同一応答を再生する．各実行は `llm_meta.json` に決定モード / モデル / エンドポイント / 温度 / シード / cache-hit 率 / パース失敗率を記録する．
+キャッシュ（モデルではない）が再現性の機構である．温暖キャッシュは同一応答を再生する．各 run は実際に応答したバックエンドを `run.json` の `llm` ブロック（provider / model / temperature）に，呼び出しの内訳を run スコープの指標（`llm_calls` / `llm_cache_hits` / `llm_cache_hit_rate` / `llm_parse_failures` / `llm_parse_fail_rate`）に記録する．rule モードの run は 1 回も呼ばないのでどちらも持たない．
 
 ## インストールとクイックスタート
 
@@ -50,21 +50,39 @@ uv sync
 uv run fujimura-tools fit-sem                  # semopy：4 パス β̃ + CFI/GFI/RMSEA・アンカー照合
 uv run fujimura-tools visualize                # 時系列 + motive_mix + SEM パス図
 uv run fujimura-tools visualize-sweep          # パス係数 forest + 風土ヒートマップ
-uv run fujimura-tools show-experiment-settings # config / sweep_config / llm_meta
+uv run fujimura-tools show-experiment-settings # 実験条件と LLM ブロック・呼び出しの内訳
 uv run fujimura-tools reproduce                # 図 1 相当パス図 + B1--B5 照合
 ```
 
 ## 出力
 
-各 `run` は `results/` 配下にタイムスタンプ付きディレクトリを書く（`results/latest` で参照）：
+実行結果は [runvault](https://github.com/akitenkrad/rs-runvault) で記録する．run 1 本が
+`results/fujimura-silence/` 配下のディレクトリ 1 つで，命名とハッシュは runvault が持つ．
+タイムスタンプ付きディレクトリも `results/latest` シンボリックリンクも作らない．
+
+`--runs N` は **1 条件を N 回反復する**という意味で，反復 1 本は run 1 本である：`run` と
+`cultural-compare` は条件と反復リストを宣言する親 run 1 本と，反復ごとの子 run を書く．
+`sweep` はグリッドを宣言する親 1 本とセルごとの子を書き，セル内の試行は子の
+`events.jsonl` の `terminal` 行になる．
 
 | ファイル | 内容 |
 |---------|------|
-| `agent_panel.csv` | long 形式：`seed, t, agent_id, psafety, fear, acquiescent, voice, silence, motive` — `fit-sem` の入力 |
-| `metrics.csv` | tick 単位 `silence_rate, voice_volume, climate_of_silence, motive_mix_*` |
-| `sem_fit.json` | ABM 由来 SEM の β̃・95%CI・適合度・`corr_silence_voice`（`fit-sem` が書く） |
-| `sweep_summary.csv` | スイープ各セル 1 行（`sweep` コマンド） |
-| `llm_meta.json` | モデル / エンドポイント / 温度 / シード / cache-hit 率 / パース失敗率 |
+| `config.json` | 封筒．実験条件は `parameters` の下 |
+| `run.json` | 同一性：3 つのハッシュ，`master_seed`，`replicate_index`，`lineage`，`llm` ブロック |
+| `metrics.csv` | long 形式 `run_uid, step, step_unit, scope, name, value`．tick 単位の `silence_rate` / `voice_volume` / `climate_of_silence` / `motive_mix_*` が `scope=run`，`corr_silence_voice` / `final_round` / `llm_*` は step を持たない |
+| `events.jsonl` | `sweep-point` の子のみ：試行 1 本 = `terminal` 行 1 本（旧 `sweep_summary.csv` の 1 行）＋その `observation` |
+| `reference.csv` | 原著が報告した `corr_silence_voice`（r = .02）と出典 |
+| `artifacts/agent_panel.csv` | long 形式：`seed, t, agent_id, psafety, fear, acquiescent, voice, silence, motive` — `fit-sem` の入力 |
+
+`sem_fit.json` と PNG は run ディレクトリの**外**（`results/fujimura-silence/figures/<run_slug>/`）
+に書く．`manifest.csv` は run の完了時に確定するので，あとから作ったものは記録の一部に
+できない．
+
+ツールには `--results-dir` で run を渡すか，省略して runvault に聞かせる：
+
+```bash
+runvault path --experiment fujimura-silence --latest --subcommand run
+```
 
 ## ドキュメント
 

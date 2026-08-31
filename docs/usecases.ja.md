@@ -9,8 +9,8 @@
 ```bash
 cargo run --release -- run --decision-mode rule --locale ja-JP \
     --n-teams 5 --team-size 80 --t-max 12 --runs 30 --seed 2019
-uv run fujimura-tools fit-sem --results-dir results/latest
-uv run fujimura-tools visualize --results-dir results/latest
+uv run fujimura-tools fit-sem
+uv run fujimura-tools visualize
 ```
 
 ## 2. 日本ベースライン（LLM モード）
@@ -22,7 +22,7 @@ export OLLAMA_HOST=http://localhost:11434
 export OLLAMA_MODEL=llama3.1
 cargo run --release -- run --decision-mode llm --locale ja-JP \
     --cache-path .llm_cache/cache.json --t-max 12 --runs 30 --seed 2019
-uv run fujimura-tools fit-sem --results-dir results/latest
+uv run fujimura-tools fit-sem
 ```
 
 ## 3. 感度分析
@@ -33,7 +33,7 @@ uv run fujimura-tools fit-sem --results-dir results/latest
 cargo run --release -- sweep --decision-mode rule --locale ja-JP \
     --n-levels-values 2,3,4,5 --eta-min 0.3 --eta-max 0.9 --eta-step 0.1 \
     --network-beta-values 0.05,0.10,0.20 --runs 20 --seed 2019
-uv run fujimura-tools visualize-sweep --results-dir results/latest
+uv run fujimura-tools visualize-sweep
 ```
 
 階層強度 forest plot と（η × β）風土ヒートマップが，沈黙／発言水準と大域沈黙螺旋が組織構造にどう応答するかを示す．

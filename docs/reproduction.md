@@ -30,14 +30,14 @@ Meeting all three is *full convergence*; one or two is *partial convergence*, in
 
 ## How β̃ is estimated
 
-`fit-sem` reads `agent_panel.csv`, drops the all-neutral t=0 step, time-averages each latent state and behaviour per agent, standardizes the columns, and fits the SEM with semopy (per-path OLS fallback). The four paths are reported with Wald 95% CIs; the SEM fit indices come from semopy's `calc_stats`. The silence/voice correlation (B5) is the Pearson r of the per-agent silence- and voice-frequency vectors.
+`fit-sem` reads the agent panel pooled across the run's replicate children, drops the all-neutral t=0 step, time-averages each latent state and behaviour per agent, standardizes the columns, and fits the SEM with semopy (per-path OLS fallback). The four paths are reported with Wald 95% CIs; the SEM fit indices come from semopy's `calc_stats`. The silence/voice correlation (B5) is the Pearson r of the per-agent silence- and voice-frequency vectors.
 
 ## Running it
 
 ```bash
 cargo run --release -- run --decision-mode rule --locale ja-JP --runs 30 --seed 2019
-uv run fujimura-tools fit-sem --results-dir results/latest
-uv run fujimura-tools reproduce --results-dir results/latest
+uv run fujimura-tools fit-sem
+uv run fujimura-tools reproduce
 ```
 
 `reproduce` prints the B1–B5 table and writes `paper_fig1_path_diagram.png` + `reproduction_report.json`. The rule-mode path reproduces all four SEM path signs; magnitudes land in the right ballpark and the SEM fit indices fall in the paper's quality band. The silence/voice correlation is small but mildly negative — an honest near-miss on B5, reflecting that fear simultaneously suppresses voice and (via acquiescence) drives silence, which is the paper's own causal structure.

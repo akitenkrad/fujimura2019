@@ -28,4 +28,6 @@ socsim-engine  = { git = "https://github.com/akitenkrad/rs-social-simulation-too
 socsim-net     = { git = "https://github.com/akitenkrad/rs-social-simulation-tools", branch = "main", package = "socsim-net" }
 socsim-llm     = { git = "https://github.com/akitenkrad/rs-social-simulation-tools", branch = "main", package = "socsim-llm", features = ["live"] }
 socsim-metrics = { git = "https://github.com/akitenkrad/rs-social-simulation-tools", branch = "main", package = "socsim-metrics" }
-socsim-results = { git = "https://github.com/akitenkrad/rs-social-simulation-tools", branch = "main", package = "socsim-results" }
+
+# 実行結果の記録 (run ディレクトリの作成・命名・同一性)．出力の置き場は runvault が持つ．
+runvault = { git = "https://github.com/akitenkrad/rs-runvault", branch = "main" }

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """visualize_sweep.py — sweep visualization for Fujimura & Hino (2019).
 
-Reads `sweep_summary.csv` from results/latest (or `--results-dir`) and produces:
+Reads one row per trial from the sweep's cell child runs (`events.jsonl` の
+`terminal` 行．旧 `sweep_summary.csv` の 1 行がこの 1 行にあたる) and produces:
   (1) a forest plot of the final silence_rate / voice_volume per n_levels (the
       hierarchy-strength effect on the silence/voice levels), with paper anchors,
   (2) a heatmap of the mean climate_of_silence over the (η × network_beta) grid
@@ -9,7 +10,7 @@ Reads `sweep_summary.csv` from results/latest (or `--results-dir`) and produces:
 
 Usage:
     fujimura-tools visualize-sweep
-    fujimura-tools visualize-sweep --results-dir results/20260530_000000_sweep
+    fujimura-tools visualize-sweep --results-dir results/20260530_000000_sweep   # legacy も可
 """
 
 from __future__ import annotations
@@ -23,7 +24,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
-from socsim_tools.io import resolve_results_dir  # noqa: E402
+from runvault.read import sweep_events_table  # noqa: E402
+
+from fujimura_tools import runs  # noqa: E402
 
 COLOR_BG = "#FAFAF8"
 COLOR_SILENCE = "#C0392B"
@@ -91,11 +94,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-dir", "--output_dir", default=None)
     args = parser.parse_args(argv)
 
-    results_dir = str(resolve_results_dir(args.results_dir))
-    output_dir = args.output_dir or results_dir
-    os.makedirs(output_dir, exist_ok=True)
+    sweep_dir = runs.resolve_run_dir(args.results_dir, subcommand="sweep")
+    output_dir = str(runs.analysis_output_dir(sweep_dir, args.output_dir))
 
-    df = pd.read_csv(os.path.join(results_dir, "sweep_summary.csv"))
+    if runs.is_runvault_run(sweep_dir):
+        # セル子 run の terminal 行を «試行 1 本 = 1 行» の表に戻す．条件の列
+        # (n_levels / eta / network_beta) は子の parameters から来る．
+        df = sweep_events_table(sweep_dir, ["n_levels", "eta", "network_beta"])
+    else:
+        df = pd.read_csv(os.path.join(str(sweep_dir), "sweep_summary.csv"),
+                         float_precision="round_trip")
     p1 = os.path.join(output_dir, "sweep_level_forest.png")
     p2 = os.path.join(output_dir, "sweep_climate_heatmap.png")
     plot_level_forest(df, p1)

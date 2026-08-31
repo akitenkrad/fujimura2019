@@ -30,14 +30,14 @@
 
 ## β̃ の推定法
 
-`fit-sem` は `agent_panel.csv` を読み，全 Neutral の t=0 を除き，エージェントごとに潜在状態・行動を時間平均し，列を標準化して semopy で SEM をフィットする（semopy 不在時は per-path OLS）．4 パスを Wald 95%CI 付きで報告し，SEM 適合度は semopy の `calc_stats` から得る．沈黙／発言相関（B5）はエージェント単位の沈黙頻度・発言頻度ベクトルの Pearson r．
+`fit-sem` は run の反復（子 run）をまたいでプールしたエージェントパネルを読み，全 Neutral の t=0 を除き，エージェントごとに潜在状態・行動を時間平均し，列を標準化して semopy で SEM をフィットする（semopy 不在時は per-path OLS）．4 パスを Wald 95%CI 付きで報告し，SEM 適合度は semopy の `calc_stats` から得る．沈黙／発言相関（B5）はエージェント単位の沈黙頻度・発言頻度ベクトルの Pearson r．
 
 ## 実行
 
 ```bash
 cargo run --release -- run --decision-mode rule --locale ja-JP --runs 30 --seed 2019
-uv run fujimura-tools fit-sem --results-dir results/latest
-uv run fujimura-tools reproduce --results-dir results/latest
+uv run fujimura-tools fit-sem
+uv run fujimura-tools reproduce
 ```
 
 `reproduce` は B1–B5 表を表示し，`paper_fig1_path_diagram.png` + `reproduction_report.json` を書く．ルールモード経路は 4 SEM パスの符号をすべて再現し，効果量は妥当な範囲に収まり，SEM 適合度は原著の品質帯に入る．沈黙／発言相関はわずかに負で，B5 の正直なニアミスである — これは怖れが発言を抑制しつつ（黙従経由で）沈黙を駆動するという原著自体の因果構造を反映している．

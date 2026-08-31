@@ -4,23 +4,35 @@
 //! `sweep`            : Cartesian product over `n_levels × η × network_beta × seeds`.
 //! `cultural-compare` : runs the JP and EN locales side by side (rule or LLM).
 //! `reproduce`        : pointer to the Python `fit-sem` / `reproduce` tooling.
+//!
+//! 出力の置き場と同一性は runvault が持つ．タイムスタンプ付きディレクトリも
+//! `latest` シンボリックリンクもこちらでは作らず，`Run::start` が決めた run
+//! ディレクトリへ書く．
+//!
+//! `run` と `cultural-compare` は «条件 + その反復» なので，親 run が反復リストを
+//! 宣言し，反復 1 本ずつが子 run になる (`fujimura_silence::record` の冒頭を参照)．
+//! `sweep` はセル 1 つが子 run で，そのセルの試行は `events.jsonl` の `terminal`
+//! 行になる．
 
 use std::fs;
 use std::path::Path;
 
 use clap::{Parser, Subcommand};
+use runvault::{Lineage, Run, RunOptions};
+use serde::Serialize;
 
 use fujimura_silence::config::{
     parse_decision_mode, parse_prompt_variant, Config, InitDist, LlmSettings,
 };
-use fujimura_silence::simulation::{
-    ensure_output_dir, llm_meta_json, run, save_agent_panel, save_metrics, write_json_file,
-    SimulationResult,
+use fujimura_silence::llm::{build_live_client, SilenceClient};
+use fujimura_silence::record::{
+    self, ConditionParameters, ReplicateGroupParameters, ReplicateParameters, DOMAIN, EXPERIMENT,
+    GROUP_SEED_POINTERS, HASH_EXCLUDE, REPLICATE_SEED_POINTERS, REPO_ID,
 };
+use fujimura_silence::simulation::{run_with_client, save_agent_panel, SimulationResult};
 use fujimura_silence::world::{parse_locale, Locale};
 
-use socsim_core::derive_seed;
-use socsim_results::{refresh_latest_symlink, timestamp, write_csv, write_json};
+use socsim_llm::LlmClient;
 
 // --------------------------------------------------------------------------- //
 // CLI
@@ -43,7 +55,7 @@ struct Cli {
 enum Commands {
     /// Run a single configuration (rule or LLM decision mode).
     Run(RunArgs),
-    /// Sweep n_levels × η × network_beta across seeds; aggregate to `sweep_summary.csv`.
+    /// Sweep n_levels × η × network_beta across seeds; one child run per cell.
     Sweep(SweepArgs),
     /// Run the JP and EN locales side by side (cultural-comparison ablation).
     CulturalCompare(CulturalCompareArgs),
@@ -95,7 +107,7 @@ struct RunArgs {
     /// Maximum simulation step.
     #[arg(long, default_value_t = 12)]
     t_max: u64,
-    /// Number of independent runs (different seeds; outputs are pooled).
+    /// Number of independent runs (different seeds; one child run each).
     #[arg(long, default_value_t = 1)]
     runs: usize,
     /// Random seed (governs the socsim core layer).
@@ -113,7 +125,7 @@ struct RunArgs {
     /// Prompt → response cache path (LLM mode only).
     #[arg(long, default_value = ".llm_cache/cache.json")]
     cache_path: String,
-    /// Output base directory.
+    /// Output base directory (runvault results root).
     #[arg(long, default_value = "results")]
     output_dir: String,
 }
@@ -156,7 +168,7 @@ struct SweepArgs {
     /// Base seed.
     #[arg(long, default_value_t = 2019)]
     seed: u64,
-    /// Output base directory.
+    /// Output base directory (runvault results root).
     #[arg(long, default_value = "results")]
     output_dir: String,
 }
@@ -187,14 +199,14 @@ struct CulturalCompareArgs {
     /// Prompt → response cache path (LLM mode only).
     #[arg(long, default_value = ".llm_cache/cache.json")]
     cache_path: String,
-    /// Output base directory.
+    /// Output base directory (runvault results root).
     #[arg(long, default_value = "results")]
     output_dir: String,
 }
 
 #[derive(Parser, Debug)]
 struct ReproduceArgs {
-    /// Output base directory.
+    /// Output base directory (runvault results root).
     #[arg(long, default_value = "results")]
     output_dir: String,
 }
@@ -252,17 +264,18 @@ fn cfg_from_run_args(args: &RunArgs) -> Config {
             seed: args.llm_seed,
             cache_path: Some(args.cache_path.clone()),
         },
-        output_dir: args.output_dir.clone(),
+        // 出力先は runvault が決めるので Config は持たない．
+        output_dir: String::new(),
     }
 }
 
-fn print_run_line(idx: usize, n: usize, r: &SimulationResult) {
+fn print_run_line(idx: usize, n: usize, seed: u64, r: &SimulationResult) {
     let last = r.metrics_rows.last();
     println!(
         "[{}/{}] seed={} silence={:.3} voice={:.3} C={:.3} corr(s,v)={:+.3}",
         idx,
         n,
-        r.seed,
+        seed,
         last.map(|m| m.silence_rate).unwrap_or(0.0),
         last.map(|m| m.voice_volume).unwrap_or(0.0),
         last.map(|m| m.climate_of_silence).unwrap_or(0.0),
@@ -270,22 +283,121 @@ fn print_run_line(idx: usize, n: usize, r: &SimulationResult) {
     );
 }
 
+/// LLM モードなら本番クライアントを組み立てる．rule モードでは `None`．
+///
+/// `Run::start` より前に組み立てるのは，`llm` ブロックに書く model / endpoint を
+/// クライアント自身から採るためである (名前を推測で書かない)．
+fn build_client(cfg: &Config) -> Option<SilenceClient> {
+    if !cfg.decision_mode.is_llm() {
+        return None;
+    }
+    Some(build_live_client(&cfg.llm).unwrap_or_else(|e| panic!("LLM client build failed: {e}")))
+}
+
+/// LLM キャッシュの置き場を用意する (LLM モードのみ)．
+fn ensure_cache_dir(cfg: &Config, cache_path: &str) {
+    if cfg.decision_mode.is_llm() {
+        if let Some(parent) = Path::new(cache_path).parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+    }
+}
+
+/// 反復 1 本を子 run として回し，記録する．
+///
+/// `run` と `cultural-compare` で共通．子の subcommand 名だけが違う — `run` の子は
+/// 「単一ロケールの 1 本」，`cultural-compare` の子は「JP と EN を並べたうちの
+/// 1 本」で，同じ名前にすると `runvault path --subcommand` がどちらを返すか
+/// 分からなくなる．
+fn run_replicate(
+    subcommand: &str,
+    results_root: &str,
+    cfg: &Config,
+    seed: u64,
+    replicate_index: usize,
+    lineage: &Lineage,
+) -> SimulationResult {
+    let client = build_client(cfg);
+    let llm = client
+        .as_ref()
+        .map(|c| record::llm_block(c.inner().model(), c.inner().endpoint(), cfg.llm.temperature));
+
+    let parameters = ReplicateParameters {
+        condition: ConditionParameters::from_config(cfg),
+        seed,
+    };
+
+    let mut options = RunOptions::new(EXPERIMENT, subcommand)
+        .repo_id(REPO_ID)
+        .domain(DOMAIN)
+        .results_root(results_root)
+        .parameters(&parameters)
+        .expect("runvault: parameters の組み立てに失敗")
+        .hash_exclude(HASH_EXCLUDE)
+        .seed_pointers(REPLICATE_SEED_POINTERS)
+        .master_seed(seed)
+        .replicate_index(replicate_index as u64)
+        .lineage(lineage.clone())
+        .replication(record::replication());
+    if let Some(llm) = llm {
+        options = options.llm(llm);
+    }
+
+    let mut child = Run::start(options).expect("runvault: 子 run の開始に失敗");
+
+    let result =
+        run_with_client(cfg, client).unwrap_or_else(|e| panic!("replicate run failed: {e}"));
+
+    record::log_simulation(&mut child, &result);
+    if cfg.decision_mode.is_llm() {
+        record::log_llm_usage(&mut child, &result);
+    }
+    record::log_paper_reference(&mut child);
+    save_agent_panel(
+        &result.panel_rows,
+        &child.dir().join("artifacts").to_string_lossy(),
+    );
+    child.finish().expect("runvault: 子 run の完了に失敗");
+
+    result
+}
+
 // --------------------------------------------------------------------------- //
 // run
 // --------------------------------------------------------------------------- //
 
 fn cmd_run(args: RunArgs) {
-    let ts = timestamp();
-    let output_dir = format!("{}/{}", args.output_dir, ts);
-    ensure_output_dir(&output_dir);
+    let base_cfg = cfg_from_run_args(&args);
+    ensure_cache_dir(&base_cfg, &args.cache_path);
 
-    let mut base_cfg = cfg_from_run_args(&args);
-    base_cfg.output_dir = output_dir.clone();
-    if base_cfg.decision_mode.is_llm() {
-        if let Some(parent) = Path::new(&args.cache_path).parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-    }
+    let runs = base_cfg.runs.max(1);
+
+    // 親 run: 条件と反復リストを宣言するだけで，シミュレーションは回さない．
+    // 反復ごとの派生シードで駆動されるので単一の master_seed は名乗らない
+    // (base seed は /base_seed と seed_pointers 経由で execution_hash に残る)．
+    let parent = Run::start(
+        RunOptions::new(EXPERIMENT, "run")
+            .repo_id(REPO_ID)
+            .domain(DOMAIN)
+            .results_root(&args.output_dir)
+            .parameters(&ReplicateGroupParameters {
+                condition: ConditionParameters::from_config(&base_cfg),
+                runs,
+                base_seed: base_cfg.seed,
+            })
+            .expect("runvault: parameters の組み立てに失敗")
+            .hash_exclude(HASH_EXCLUDE)
+            .seed_pointers(GROUP_SEED_POINTERS)
+            .sweep_parent()
+            .replication(record::replication()),
+    )
+    .expect("runvault: 親 run の開始に失敗");
+
+    let lineage = Lineage {
+        sweep_id: parent.sweep_id().map(str::to_string),
+        parent_run_uid: Some(parent.run_uid().to_string()),
+        ..Default::default()
+    };
 
     println!("=== Fujimura & Hino (2019) — Silence and voice ===");
     println!(
@@ -301,85 +413,71 @@ fn cmd_run(args: RunArgs) {
         base_cfg.network_beta,
     );
     println!(
-        "t_max={} runs={} seed={} | output: {output_dir}",
-        base_cfg.t_max, base_cfg.runs, base_cfg.seed
+        "t_max={} runs={} seed={} | output: {}",
+        base_cfg.t_max,
+        runs,
+        base_cfg.seed,
+        parent.dir().display()
     );
     println!("----------------------------------------------------------------------");
 
-    write_json(
-        &base_cfg.to_run_config_json(),
-        format!("{output_dir}/config.json"),
-    )
-    .expect("failed to write config.json");
-
-    let runs = base_cfg.runs.max(1);
-    let mut all_metrics = Vec::new();
-    let mut all_panel = Vec::new();
-    let mut last_result: Option<SimulationResult> = None;
+    let mut last: Option<SimulationResult> = None;
     for run_idx in 0..runs {
-        let seed = derive_seed(base_cfg.seed, &[run_idx as u64]);
+        let seed = record::replicate_seed(base_cfg.seed, run_idx);
         let cfg = Config {
             seed,
             ..base_cfg.clone()
         };
-        let result = run(&cfg).unwrap_or_else(|e| panic!("run failed: {e}"));
-        print_run_line(run_idx + 1, runs, &result);
-        all_metrics.extend(result.metrics_rows.clone());
-        all_panel.extend(result.panel_rows.clone());
-        last_result = Some(result);
+        let result = run_replicate(
+            "run-replicate",
+            &args.output_dir,
+            &cfg,
+            seed,
+            run_idx,
+            &lineage,
+        );
+        print_run_line(run_idx + 1, runs, seed, &result);
+        last = Some(result);
     }
 
-    let result = last_result.expect("at least one run");
-    save_metrics(&all_metrics, &output_dir);
-    save_agent_panel(&all_panel, &output_dir);
-    let meta = llm_meta_json(&base_cfg, &result);
-    write_json_file(&meta, &format!("{output_dir}/llm_meta.json"));
-
-    let _ = refresh_latest_symlink(&args.output_dir, &ts);
+    let dir = parent.finish().expect("runvault: 親 run の完了に失敗");
 
     println!("----------------------------------------------------------------------");
-    println!(
-        "LLM calls: {} | cache-hit: {} ({:.1}%) | model: {}",
-        result.metadata.total(),
-        result.metadata.cache_hits(),
-        result.metadata.cache_hit_rate() * 100.0,
-        result.llm_model,
-    );
-    println!("agent_panel → {output_dir}/agent_panel.csv");
-    println!("metrics     → {output_dir}/metrics.csv");
-    println!("llm_meta    → {output_dir}/llm_meta.json");
-    println!("config      → {output_dir}/config.json");
+    if let Some(result) = &last {
+        println!(
+            "LLM calls (最後の反復): {} | cache-hit: {} ({:.1}%) | model: {}",
+            result.metadata.total(),
+            result.metadata.cache_hits(),
+            result.metadata.cache_hit_rate() * 100.0,
+            result.llm_model,
+        );
+    }
+    println!("親 run   → {}", dir.display());
+    println!("反復 {runs} 本 → 子 run (subcommand=run-replicate)．metrics.csv がステップごとの時系列，artifacts/agent_panel.csv がパネル．");
 }
 
 // --------------------------------------------------------------------------- //
 // sweep
 // --------------------------------------------------------------------------- //
 
-#[derive(serde::Serialize)]
-struct SweepRow {
-    decision_mode: String,
-    locale: String,
-    n_levels: u8,
-    eta: f64,
-    network_beta: f64,
-    run: usize,
-    seed: u64,
-    final_round: u64,
-    silence_rate: f64,
-    voice_volume: f64,
-    climate_of_silence: f64,
-    corr_silence_voice: f64,
-    motive_mix_acquiescent: f64,
-    motive_mix_quiescent: f64,
+/// スイープ親 run の実験条件 (グリッド定義そのもの)．
+#[derive(Serialize)]
+struct SweepParameters {
+    decision_mode: &'static str,
+    locale: &'static str,
+    n_levels_values: Vec<u8>,
+    eta_values: Vec<f64>,
+    network_beta_values: Vec<f64>,
+    n_teams: usize,
+    team_size: usize,
+    runs: usize,
+    t_max: u64,
+    base_seed: u64,
 }
 
 fn cmd_sweep(args: SweepArgs) {
     let decision_mode = parse_decision_mode(&args.decision_mode).unwrap_or_else(|e| panic!("{e}"));
     let locale = parse_locale(&args.locale).unwrap_or_else(|e| panic!("{e}"));
-    let ts = timestamp();
-    let dir_name = format!("{ts}_sweep");
-    let sweep_dir = format!("{}/{}", args.output_dir, dir_name);
-    fs::create_dir_all(&sweep_dir).expect("failed to create sweep dir");
 
     let n_levels_vals = parse_u8_list(&args.n_levels_values);
     let mut eta_vals: Vec<f64> = Vec::new();
@@ -392,6 +490,38 @@ fn cmd_sweep(args: SweepArgs) {
 
     let n_cells = n_levels_vals.len() * eta_vals.len() * beta_vals.len();
     let n_total = n_cells * args.runs;
+
+    // 親 run: グリッド定義そのものを parameters に持つ．個別セルの指標は書かない．
+    let parent = Run::start(
+        RunOptions::new(EXPERIMENT, "sweep")
+            .repo_id(REPO_ID)
+            .domain(DOMAIN)
+            .results_root(&args.output_dir)
+            .parameters(&SweepParameters {
+                decision_mode: decision_mode.label(),
+                locale: locale.label(),
+                n_levels_values: n_levels_vals.clone(),
+                eta_values: eta_vals.clone(),
+                network_beta_values: beta_vals.clone(),
+                n_teams: args.n_teams,
+                team_size: args.team_size,
+                runs: args.runs,
+                t_max: args.t_max,
+                base_seed: args.seed,
+            })
+            .expect("runvault: sweep の parameters の組み立てに失敗")
+            .seed_pointers(GROUP_SEED_POINTERS)
+            .sweep_parent()
+            .replication(record::replication()),
+    )
+    .expect("runvault: sweep 親 run の開始に失敗");
+
+    let lineage = Lineage {
+        sweep_id: parent.sweep_id().map(str::to_string),
+        parent_run_uid: Some(parent.run_uid().to_string()),
+        ..Default::default()
+    };
+
     println!("=== fujimura-sweep ===");
     println!(
         "decision_mode: {} | locale: {} | n_levels={:?} η={:?} network_beta={:?} | runs/cell={} | total {} runs",
@@ -403,135 +533,162 @@ fn cmd_sweep(args: SweepArgs) {
         args.runs,
         n_total,
     );
-    println!("output: {sweep_dir}");
+    println!("base seed: {}", args.seed);
+    println!("output: {}", parent.dir().display());
     println!("------------------------------------------------------------");
 
-    let config_json = serde_json::json!({
-        "command": "sweep",
-        "decision_mode": decision_mode.label(),
-        "locale": locale.label(),
-        "n_levels_values": n_levels_vals,
-        "eta_values": eta_vals,
-        "network_beta_values": beta_vals,
-        "n_teams": args.n_teams,
-        "team_size": args.team_size,
-        "runs": args.runs,
-        "t_max": args.t_max,
-        "seed": args.seed,
-    });
-    write_json(&config_json, format!("{sweep_dir}/sweep_config.json"))
-        .expect("failed to write sweep_config.json");
-
-    let mut rows: Vec<SweepRow> = Vec::with_capacity(n_total);
     let mut idx = 0usize;
     for &nl in &n_levels_vals {
         for &eta in &eta_vals {
             for &nb in &beta_vals {
+                let cell_cfg = Config {
+                    n_teams: args.n_teams,
+                    team_size: args.team_size,
+                    n_levels: nl,
+                    network_beta: nb,
+                    locale,
+                    eta,
+                    decision_mode,
+                    init: InitDist {
+                        ivt_mean: locale.default_ivt_mean(),
+                        ..InitDist::default()
+                    },
+                    t_max: args.t_max,
+                    runs: args.runs,
+                    seed: args.seed,
+                    llm: LlmSettings {
+                        cache_path: Some(".llm_cache/cache.json".to_string()),
+                        ..LlmSettings::default()
+                    },
+                    ..Config::default()
+                };
+
+                // 子は «そのセルの試行群» そのもの．base seed とセル座標から
+                // すべての試行シードが決まるので master_seed は base seed であり，
+                // 同一セルの繰り返しは無いので replicate_index は 0．
+                let mut child = Run::start(
+                    RunOptions::new(EXPERIMENT, "sweep-point")
+                        .repo_id(REPO_ID)
+                        .domain(DOMAIN)
+                        .results_root(&args.output_dir)
+                        .parameters(&ReplicateGroupParameters {
+                            condition: ConditionParameters::from_config(&cell_cfg),
+                            runs: args.runs,
+                            base_seed: args.seed,
+                        })
+                        .expect("runvault: 子 run の parameters の組み立てに失敗")
+                        .hash_exclude(HASH_EXCLUDE)
+                        .seed_pointers(GROUP_SEED_POINTERS)
+                        .master_seed(args.seed)
+                        .replicate_index(0)
+                        .lineage(lineage.clone())
+                        .replication(record::replication()),
+                )
+                .expect("runvault: sweep 子 run の開始に失敗");
+
+                let mut trials: Vec<record::TrialOutcome> = Vec::with_capacity(args.runs);
                 for run_idx in 0..args.runs {
                     idx += 1;
-                    let seed = derive_seed(
-                        args.seed,
-                        &[
-                            nl as u64,
-                            (eta * 1000.0) as u64,
-                            (nb * 1000.0) as u64,
-                            run_idx as u64,
-                        ],
-                    );
+                    let seed = record::trial_seed(args.seed, nl, eta, nb, run_idx);
                     let cfg = Config {
-                        n_teams: args.n_teams,
-                        team_size: args.team_size,
-                        n_levels: nl,
-                        network_beta: nb,
-                        locale,
-                        eta,
-                        decision_mode,
-                        init: InitDist {
-                            ivt_mean: locale.default_ivt_mean(),
-                            ..InitDist::default()
-                        },
-                        t_max: args.t_max,
+                        seed,
                         runs: 1,
-                        seed,
-                        llm: LlmSettings {
-                            cache_path: Some(".llm_cache/cache.json".to_string()),
-                            ..LlmSettings::default()
-                        },
-                        ..Config::default()
+                        ..cell_cfg.clone()
                     };
-                    let result = run(&cfg).unwrap_or_else(|e| panic!("sweep run failed: {e}"));
-                    let last = result
-                        .metrics_rows
-                        .last()
-                        .expect("metrics must not be empty");
-                    rows.push(SweepRow {
-                        decision_mode: decision_mode.label().to_string(),
-                        locale: locale.label().to_string(),
-                        n_levels: nl,
-                        eta,
-                        network_beta: nb,
-                        run: run_idx,
-                        seed,
-                        final_round: result.final_round,
-                        silence_rate: last.silence_rate,
-                        voice_volume: last.voice_volume,
-                        climate_of_silence: last.climate_of_silence,
-                        corr_silence_voice: result.corr_silence_voice,
-                        motive_mix_acquiescent: last.motive_mix_acquiescent,
-                        motive_mix_quiescent: last.motive_mix_quiescent,
-                    });
+                    let client = build_client(&cfg);
+                    let result = run_with_client(&cfg, client)
+                        .unwrap_or_else(|e| panic!("sweep run failed: {e}"));
+                    let outcome = record::TrialOutcome::from_result(&result);
+                    record::log_trial(&mut child, run_idx, seed, args.t_max, &outcome);
                     if idx.is_multiple_of(20) || idx == n_total {
                         println!(
                             "[{}/{}] L={} η={:.2} β={:.2} run={} silence={:.3}",
-                            idx, n_total, nl, eta, nb, run_idx, last.silence_rate
+                            idx, n_total, nl, eta, nb, run_idx, outcome.silence_rate
                         );
                     }
+                    trials.push(outcome);
                 }
+                record::log_cell_summary(&mut child, &trials);
+                child.finish().expect("runvault: sweep 子 run の完了に失敗");
             }
         }
     }
 
-    write_csv(&rows, format!("{sweep_dir}/sweep_summary.csv"))
-        .expect("failed to write sweep_summary.csv");
-    let _ = refresh_latest_symlink(&args.output_dir, &dir_name);
+    let dir = parent
+        .finish()
+        .expect("runvault: sweep 親 run の完了に失敗");
     println!("------------------------------------------------------------");
     println!("sweep done.");
-    println!("summary → {sweep_dir}/sweep_summary.csv");
+    println!("親 run     → {}", dir.display());
+    println!("セル {n_cells} 個 → 子 run (subcommand=sweep-point)．試行 1 本が events.jsonl の terminal 行 1 本．");
 }
 
 // --------------------------------------------------------------------------- //
 // cultural-compare
 // --------------------------------------------------------------------------- //
 
+/// cultural-compare 親 run の実験条件．
+///
+/// 2 つのロケールを並べる指示そのものなので `ConditionParameters` は持たない —
+/// JP と EN は別々の条件で，どちらか一方を親の条件として名乗ることはできない．
+#[derive(Serialize)]
+struct CulturalParameters {
+    decision_mode: &'static str,
+    locales: [&'static str; 2],
+    n_teams: usize,
+    team_size: usize,
+    eta: f64,
+    t_max: u64,
+    runs: usize,
+    base_seed: u64,
+}
+
 fn cmd_cultural_compare(args: CulturalCompareArgs) {
     let decision_mode = parse_decision_mode(&args.decision_mode).unwrap_or_else(|e| panic!("{e}"));
-    let ts = timestamp();
-    let output_dir = format!("{}/{}_cultural", args.output_dir, ts);
-    ensure_output_dir(&output_dir);
-    if decision_mode.is_llm() {
-        if let Some(parent) = Path::new(&args.cache_path).parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-    }
+    let runs = args.runs.max(1);
+
+    let parent = Run::start(
+        RunOptions::new(EXPERIMENT, "cultural-compare")
+            .repo_id(REPO_ID)
+            .domain(DOMAIN)
+            .results_root(&args.output_dir)
+            .parameters(&CulturalParameters {
+                decision_mode: decision_mode.label(),
+                locales: [Locale::JaJp.label(), Locale::EnUs.label()],
+                n_teams: args.n_teams,
+                team_size: args.team_size,
+                eta: args.eta,
+                t_max: args.t_max,
+                runs,
+                base_seed: args.seed,
+            })
+            .expect("runvault: parameters の組み立てに失敗")
+            .seed_pointers(GROUP_SEED_POINTERS)
+            .sweep_parent()
+            .replication(record::replication()),
+    )
+    .expect("runvault: 親 run の開始に失敗");
+
+    let lineage = Lineage {
+        sweep_id: parent.sweep_id().map(str::to_string),
+        parent_run_uid: Some(parent.run_uid().to_string()),
+        ..Default::default()
+    };
 
     println!("=== fujimura cultural-compare (JP vs EN) ===");
     println!(
-        "decision_mode: {} | runs/locale: {} | output: {output_dir}",
+        "decision_mode: {} | runs/locale: {} | output: {}",
         decision_mode.label(),
-        args.runs
+        runs,
+        parent.dir().display()
     );
     println!("------------------------------------------------------------");
 
-    let mut all_panel = Vec::new();
-    let mut all_metrics = Vec::new();
-    let mut last_result: Option<SimulationResult> = None;
     for locale in [Locale::JaJp, Locale::EnUs] {
         println!("-- locale: {} --", locale.label());
-        for run_idx in 0..args.runs.max(1) {
-            let seed = derive_seed(
-                args.seed,
-                &[locale.default_hierarchy_strength() as u64, run_idx as u64],
-            );
+        for run_idx in 0..runs {
+            let seed =
+                record::cultural_seed(args.seed, locale.default_hierarchy_strength(), run_idx);
             let cfg = Config {
                 n_teams: args.n_teams,
                 team_size: args.team_size,
@@ -552,44 +709,25 @@ fn cmd_cultural_compare(args: CulturalCompareArgs) {
                 },
                 ..Config::default()
             };
-            let result = run(&cfg).unwrap_or_else(|e| panic!("cultural-compare run failed: {e}"));
-            print_run_line(run_idx + 1, args.runs.max(1), &result);
-            // Tag panel rows by encoding locale into the seed column is not ideal;
-            // instead write per-locale subdirs are overkill — pool with locale in metrics.
-            all_panel.extend(result.panel_rows.clone());
-            all_metrics.extend(result.metrics_rows.clone());
-            last_result = Some(result);
+            ensure_cache_dir(&cfg, &args.cache_path);
+            // ロケールは子 run の parameters に入る．旧 `agent_panel.csv` は JP と
+            // EN を 1 ファイルに混ぜたうえロケール列を持たず，どの行がどちらの
+            // ものかシードからしか辿れなかった．
+            let result = run_replicate(
+                "cultural-replicate",
+                &args.output_dir,
+                &cfg,
+                seed,
+                run_idx,
+                &lineage,
+            );
+            print_run_line(run_idx + 1, runs, seed, &result);
         }
     }
 
-    save_agent_panel(&all_panel, &output_dir);
-    save_metrics(&all_metrics, &output_dir);
-    let config_json = serde_json::json!({
-        "command": "cultural-compare",
-        "decision_mode": decision_mode.label(),
-        "locales": ["ja-JP", "en-US"],
-        "n_teams": args.n_teams,
-        "team_size": args.team_size,
-        "eta": args.eta,
-        "runs": args.runs,
-        "t_max": args.t_max,
-        "seed": args.seed,
-    });
-    write_json(&config_json, format!("{output_dir}/config.json"))
-        .expect("failed to write config.json");
-    if let Some(r) = &last_result {
-        let cfg = Config {
-            decision_mode,
-            ..Config::default()
-        };
-        write_json_file(
-            &llm_meta_json(&cfg, r),
-            &format!("{output_dir}/llm_meta.json"),
-        );
-    }
-    let _ = refresh_latest_symlink(&args.output_dir, &format!("{ts}_cultural"));
+    let dir = parent.finish().expect("runvault: 親 run の完了に失敗");
     println!("------------------------------------------------------------");
-    println!("cultural-compare done. agent_panel → {output_dir}/agent_panel.csv");
+    println!("cultural-compare done. 親 run → {}", dir.display());
 }
 
 // --------------------------------------------------------------------------- //
@@ -599,12 +737,13 @@ fn cmd_cultural_compare(args: CulturalCompareArgs) {
 fn cmd_reproduce(_args: ReproduceArgs) {
     println!("The SEM β̃ estimation + Fig.1 path-diagram reproduction lives in the Python tooling:");
     println!();
-    println!("  uv run fujimura-tools fit-sem    --results-dir results/latest");
-    println!("  uv run fujimura-tools reproduce  --results-dir results/latest");
+    println!("  uv run fujimura-tools fit-sem");
+    println!("  uv run fujimura-tools reproduce");
     println!();
-    println!("They fit the ABM-induced SEM to agent_panel.csv (semopy), estimate the 4 path");
-    println!("coefficients (ψ→fear, fear→acquiescent, fear→voice, acquiescent→silence) + CFI/GFI/");
-    println!("RMSEA, and reconcile them against the §5 paper anchors (B1–B5).");
+    println!("They pool the replicates' agent_panel.csv, fit the ABM-induced SEM (semopy),");
+    println!("estimate the 4 path coefficients (ψ→fear, fear→acquiescent, fear→voice,");
+    println!("acquiescent→silence) + CFI/GFI/RMSEA, and reconcile them against the §5 paper");
+    println!("anchors (B1–B5).");
     println!();
     println!("Run a simulation first:");
     println!(

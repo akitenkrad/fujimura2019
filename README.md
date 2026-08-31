@@ -17,7 +17,7 @@ LLM output is **outside** socsim's bit-reproducibility, so the design splits int
 - **Deterministic socsim core** — employee initialisation (latent states sampled from the paper's M/SD), Watts–Strogatz network generation, scheduling, and the 7 deterministic mechanisms plus the rule-mode `voice_decision_rule`. Given a seed this reproduces bit-for-bit. The `--decision-mode rule` path lives entirely here and makes **zero LLM calls**.
 - **Non-deterministic LLM layer** — `voice_decision` only. Pseudo-determinised by `socsim-llm`'s `CachingClient` (a `hash(prompt+model)` → response cache), `temperature = 0` and a fixed `(agent_id, t)`-derived seed. Provider order is **Ollama first → OpenAI fallback**.
 
-The cache — not the model — is the reproducibility mechanism: a warm cache replays identical responses. Each run writes `llm_meta.json` recording decision mode / model / endpoint / temperature / seed / cache-hit rate / parse-failure rate.
+The cache — not the model — is the reproducibility mechanism: a warm cache replays identical responses. Each run records the backend it actually spoke to in `run.json`'s `llm` block (provider / model / temperature) and the call breakdown as run-scope metrics (`llm_calls` / `llm_cache_hits` / `llm_cache_hit_rate` / `llm_parse_failures` / `llm_parse_fail_rate`). A `rule`-mode run has neither, because it makes no calls.
 
 ## Install & Quick start
 
@@ -50,21 +50,32 @@ uv sync
 uv run fujimura-tools fit-sem                  # semopy: 4 path β̃ + CFI/GFI/RMSEA, anchor reconciliation
 uv run fujimura-tools visualize                # time-series + motive_mix + SEM path diagram
 uv run fujimura-tools visualize-sweep          # path-coefficient forest + climate heatmap
-uv run fujimura-tools show-experiment-settings # config / sweep_config / llm_meta
+uv run fujimura-tools show-experiment-settings # conditions + the LLM block and call breakdown
 uv run fujimura-tools reproduce                # Fig.1-style path diagram + B1--B5 reconciliation
 ```
 
 ## Outputs
 
-Each `run` writes a timestamped directory under `results/` (with `results/latest` symlinked):
+Runs are recorded with [runvault](https://github.com/akitenkrad/rs-runvault): one run is one directory under `results/fujimura-silence/`, named and hashed by runvault. There is no timestamped directory and no `results/latest` symlink.
+
+`--runs N` is **N replicates of one condition**, and a replicate is a run: `run` and `cultural-compare` write a parent run declaring the condition and the replicate list, plus one child run per replicate. `sweep` writes a parent declaring the grid, plus one child per cell, whose trials are `terminal` rows in `events.jsonl`.
 
 | File | Contents |
 |------|----------|
-| `agent_panel.csv` | long format: `seed, t, agent_id, psafety, fear, acquiescent, voice, silence, motive` — the input to `fit-sem` |
-| `metrics.csv` | per-step `silence_rate, voice_volume, climate_of_silence, motive_mix_*` |
-| `sem_fit.json` | ABM-induced SEM β̃, 95% CI, fit indices, `corr_silence_voice` (written by `fit-sem`) |
-| `sweep_summary.csv` | one row per sweep cell (`sweep` command) |
-| `llm_meta.json` | model / endpoint / temperature / seed / cache-hit rate / parse-fail rate |
+| `config.json` | the envelope; the conditions live under `parameters` |
+| `run.json` | identity: the three hashes, `master_seed`, `replicate_index`, `lineage`, the `llm` block |
+| `metrics.csv` | long format `run_uid, step, step_unit, scope, name, value`. Per-step `silence_rate` / `voice_volume` / `climate_of_silence` / `motive_mix_*` at `scope=run`; `corr_silence_voice` / `final_round` / `llm_*` with no step |
+| `events.jsonl` | `sweep-point` children only: one `terminal` row per trial (the old `sweep_summary.csv` row) plus its `observation` |
+| `reference.csv` | the paper's reported `corr_silence_voice` (r = .02) with its source |
+| `artifacts/agent_panel.csv` | long format: `seed, t, agent_id, psafety, fear, acquiescent, voice, silence, motive` — the input to `fit-sem` |
+
+`sem_fit.json` and the PNGs are written **beside** the run, in `results/fujimura-silence/figures/<run_slug>/`: `manifest.csv` is settled when the run finishes, so anything made afterwards is not part of the record.
+
+Point the tools at a run with `--results-dir`, or let them ask runvault:
+
+```bash
+runvault path --experiment fujimura-silence --latest --subcommand run
+```
 
 ## Documentation
 
