@@ -18,7 +18,7 @@ use std::fs;
 use std::path::Path;
 
 use clap::{Parser, Subcommand};
-use runvault::{Lineage, Run, RunOptions};
+use runvault::{Lineage, Run, RunOptions, Stage};
 use serde::Serialize;
 
 use fujimura_silence::config::{
@@ -29,7 +29,7 @@ use fujimura_silence::record::{
     self, ConditionParameters, ReplicateGroupParameters, ReplicateParameters, DOMAIN, EXPERIMENT,
     GROUP_SEED_POINTERS, HASH_EXCLUDE, REPLICATE_SEED_POINTERS, REPO_ID,
 };
-use fujimura_silence::simulation::{run_with_client, save_agent_panel, SimulationResult};
+use fujimura_silence::simulation::{run_with_client_observed, save_agent_panel, SimulationResult};
 use fujimura_silence::world::{parse_locale, Locale};
 
 use socsim_llm::LlmClient;
@@ -309,6 +309,13 @@ fn ensure_cache_dir(cfg: &Config, cache_path: &str) {
 /// 「単一ロケールの 1 本」，`cultural-compare` の子は「JP と EN を並べたうちの
 /// 1 本」で，同じ名前にすると `runvault path --subcommand` がどちらを返すか
 /// 分からなくなる．
+///
+/// 進捗の 1 単位は 1 ステップ．費用がそこにあるからで，1 ステップは全従業員に
+/// ついて決定を出し，LLM モードではその 1 つ 1 つがモデル呼び出しになる．反復を
+/// 単位にすると，ライブの 1 本は 0/1 と出したきり終わりまで黙る．`stage` は
+/// 呼び出し側が開ける — コマンド全体で 1 つにすることで，反復をまたいでも割合が
+/// 途中で 100% に戻らない．
+#[allow(clippy::too_many_arguments)]
 fn run_replicate(
     subcommand: &str,
     results_root: &str,
@@ -316,6 +323,7 @@ fn run_replicate(
     seed: u64,
     replicate_index: usize,
     lineage: &Lineage,
+    stage: &mut Stage,
 ) -> SimulationResult {
     let client = build_client(cfg);
     let llm = client
@@ -345,8 +353,8 @@ fn run_replicate(
 
     let mut child = Run::start(options).expect("runvault: 子 run の開始に失敗");
 
-    let result =
-        run_with_client(cfg, client).unwrap_or_else(|e| panic!("replicate run failed: {e}"));
+    let result = run_with_client_observed(cfg, client, |_| stage.tick())
+        .unwrap_or_else(|e| panic!("replicate run failed: {e}"));
 
     record::log_simulation(&mut child, &result);
     if cfg.decision_mode.is_llm() {
@@ -422,6 +430,9 @@ fn cmd_run(args: RunArgs) {
     println!("----------------------------------------------------------------------");
 
     let mut last: Option<SimulationResult> = None;
+    // 親 run に stage を 1 つ．反復はすべて同じ条件・同じ t_max なので重みでは
+    // なく数える．子 run ごとに開け直すと小さな 100% が並ぶだけになる．
+    let mut stage = parent.stage("steps", runs * base_cfg.t_max as usize);
     for run_idx in 0..runs {
         let seed = record::replicate_seed(base_cfg.seed, run_idx);
         let cfg = Config {
@@ -435,10 +446,14 @@ fn cmd_run(args: RunArgs) {
             seed,
             run_idx,
             &lineage,
+            &mut stage,
         );
         print_run_line(run_idx + 1, runs, seed, &result);
         last = Some(result);
     }
+    // manifest.csv は finish() で封をされる．その後に 1 行足せば，manifest が
+    // 食い違うダイジェストを持つことになる．
+    stage.close();
 
     let dir = parent.finish().expect("runvault: 親 run の完了に失敗");
 
@@ -538,6 +553,10 @@ fn cmd_sweep(args: SweepArgs) {
     println!("------------------------------------------------------------");
 
     let mut idx = 0usize;
+    // グリッド全体で stage を 1 つ．掃引しているのは階層数・η・β で，どれも
+    // 仕事の量を変えない (従業員数も t_max も固定) ので，重みではなく数える．
+    let mut stage = parent.stage("steps", n_total * args.t_max as usize);
+
     for &nl in &n_levels_vals {
         for &eta in &eta_vals {
             for &nb in &beta_vals {
@@ -596,7 +615,7 @@ fn cmd_sweep(args: SweepArgs) {
                         ..cell_cfg.clone()
                     };
                     let client = build_client(&cfg);
-                    let result = run_with_client(&cfg, client)
+                    let result = run_with_client_observed(&cfg, client, |_| stage.tick())
                         .unwrap_or_else(|e| panic!("sweep run failed: {e}"));
                     let outcome = record::TrialOutcome::from_result(&result);
                     record::log_trial(&mut child, run_idx, seed, args.t_max, &outcome);
@@ -613,6 +632,8 @@ fn cmd_sweep(args: SweepArgs) {
             }
         }
     }
+
+    stage.close();
 
     let dir = parent
         .finish()
@@ -684,6 +705,10 @@ fn cmd_cultural_compare(args: CulturalCompareArgs) {
     );
     println!("------------------------------------------------------------");
 
+    // 2 ロケール分で stage を 1 つ．ロケールが変えるのは階層の深さと IVT の
+    // 初期平均だけで，1 ステップの仕事の量は同じなので重みではなく数える．
+    let mut stage = parent.stage("steps", 2 * runs * args.t_max as usize);
+
     for locale in [Locale::JaJp, Locale::EnUs] {
         println!("-- locale: {} --", locale.label());
         for run_idx in 0..runs {
@@ -720,10 +745,12 @@ fn cmd_cultural_compare(args: CulturalCompareArgs) {
                 seed,
                 run_idx,
                 &lineage,
+                &mut stage,
             );
             print_run_line(run_idx + 1, runs, seed, &result);
         }
     }
+    stage.close();
 
     let dir = parent.finish().expect("runvault: 親 run の完了に失敗");
     println!("------------------------------------------------------------");

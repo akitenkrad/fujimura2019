@@ -177,6 +177,24 @@ pub fn run_with_client(
     cfg: &Config,
     client: Option<SilenceClient>,
 ) -> std::result::Result<SimulationResult, String> {
+    run_with_client_observed(cfg, client, |_| {})
+}
+
+/// The same, calling `on_step` once for every simulated step.
+///
+/// The callback is where a caller counts its progress. A step is the unit
+/// because it is the unit the cost is in: one step decides for every employee,
+/// and under an LLM mode that is one model call each. A replicate of `t_max`
+/// steps would be a single tick, which is the granularity that leaves a live
+/// run silent for an hour.
+///
+/// It is given the step number rather than nothing so a caller can report
+/// against the clock rather than against its own tally.
+pub fn run_with_client_observed(
+    cfg: &Config,
+    client: Option<SilenceClient>,
+    mut on_step: impl FnMut(u64),
+) -> std::result::Result<SimulationResult, String> {
     let root = cfg.seed;
     let world = init_world(cfg, root);
 
@@ -245,6 +263,7 @@ pub fn run_with_client(
         let t = report.t;
         record_step(report.world, t, root, &mut metrics_rows, &mut panel_rows);
         final_round = t;
+        on_step(t);
     })
     .map_err(|e| format!("simulation run failed: {e}"))?;
 
