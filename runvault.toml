@@ -1,3 +1,136 @@
-# Metric descriptions are not written yet (MYTASK-3382). Until they are,
-# runvault records undeclared metrics instead of refusing them.
-require_docs = false
+# 指標が何を測っているか (runvault の宣言．rs-runvault docs/metrics.ja.md)．
+#
+# 名前は `simulation/src/record.rs` が書いているものと一致していなければならない．
+# `motive_mix_*` は沈黙動機ごとの割合であり，動機カテゴリの番号ではない．
+#
+# `direction` は «どちらが良いか»．沈黙・発言・沈黙動機・両者の相関はいずれも
+# 模型の記述量なので `none` を書く．LLM の失敗率と cache-hit 率だけは実行品質の
+# 尺度として向きを持つ．
+
+# --- ステップごと (scope=run, step=t) -------------------------------------
+
+[metrics."silence_rate"]
+meaning   = "そのステップで沈黙した従業員の割合"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."voice_volume"]
+meaning   = "そのステップで発言した従業員の割合"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."climate_of_silence"]
+meaning   = "組織全体で知覚された沈黙風土の平均"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."motive_mix_acquiescent"]
+meaning   = "沈黙者のうち黙従動機に分類された者の割合"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."motive_mix_quiescent"]
+meaning   = "沈黙者のうち怖れ動機に分類された者の割合"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."motive_mix_prosocial"]
+meaning   = "沈黙者のうち向社会的動機に分類された者の割合"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."motive_mix_opportunistic"]
+meaning   = "沈黙者のうち機会主義的動機に分類された者の割合"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+# --- run 全体と LLM の呼び出し -------------------------------------------
+
+[metrics."corr_silence_voice"]
+meaning   = "従業員ごとの時間平均沈黙頻度と時間平均発言頻度の Pearson 相関"
+unit      = "correlation"
+direction = "none"
+range     = [-1.0, 1.0]
+scope     = ["run"]
+
+[metrics."final_round"]
+meaning   = "停止したときの最終ラウンド番号"
+unit      = "count"
+direction = "none"
+scope     = ["run"]
+
+[metrics."llm_calls"]
+meaning   = "この run が行った LLM の呼び出し回数"
+unit      = "count"
+direction = "none"
+scope     = ["run"]
+
+[metrics."llm_cache_hits"]
+meaning   = "LLM 呼び出しのうちキャッシュで応答した回数"
+unit      = "count"
+direction = "none"
+scope     = ["run"]
+
+[metrics."llm_cache_hit_rate"]
+meaning   = "LLM 呼び出しのうちキャッシュで応答した割合"
+unit      = "ratio"
+direction = "up"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."llm_parse_failures"]
+meaning   = "LLM 応答を所定の意思決定形式として解釈できなかった回数"
+unit      = "count"
+direction = "down"
+scope     = ["run"]
+
+[metrics."llm_parse_fail_rate"]
+meaning   = "LLM 応答のうち所定の意思決定形式として解釈できなかった割合"
+unit      = "ratio"
+direction = "down"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+# --- sweep セルの試行平均 (scope=run) --------------------------------------
+
+[metrics."mean_silence_rate"]
+meaning   = "sweep セルの試行群にわたる最終沈黙率の平均"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."mean_voice_volume"]
+meaning   = "sweep セルの試行群にわたる最終発言率の平均"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."mean_climate_of_silence"]
+meaning   = "sweep セルの試行群にわたる最終沈黙風土の平均"
+unit      = "ratio"
+direction = "none"
+range     = [0.0, 1.0]
+scope     = ["run"]
+
+[metrics."mean_corr_silence_voice"]
+meaning   = "sweep セルの試行群にわたる沈黙頻度と発言頻度の Pearson 相関の平均"
+unit      = "correlation"
+direction = "none"
+range     = [-1.0, 1.0]
+scope     = ["run"]
