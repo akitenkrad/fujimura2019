@@ -46,6 +46,9 @@ use socsim_llm::LlmClient;
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+    /// Development run: write it under results/_scratch/ so it is never synced to the vault.
+    #[arg(long, global = true)]
+    scratch: bool,
     /// Ollama 接続先 URL（指定時は環境変数 OLLAMA_HOST を上書きする）．
     #[arg(long, global = true)]
     ollama_host: Option<String>,
@@ -324,6 +327,7 @@ fn run_replicate(
     replicate_index: usize,
     lineage: &Lineage,
     stage: &mut Stage,
+    scratch: bool,
 ) -> SimulationResult {
     let client = build_client(cfg);
     let llm = client
@@ -336,6 +340,7 @@ fn run_replicate(
     };
 
     let mut options = RunOptions::new(EXPERIMENT, subcommand)
+        .scratch(scratch)
         .repo_id(REPO_ID)
         .domain(DOMAIN)
         .results_root(results_root)
@@ -374,7 +379,7 @@ fn run_replicate(
 // run
 // --------------------------------------------------------------------------- //
 
-fn cmd_run(args: RunArgs) {
+fn cmd_run(args: RunArgs, scratch: bool) {
     let base_cfg = cfg_from_run_args(&args);
     ensure_cache_dir(&base_cfg, &args.cache_path);
 
@@ -385,6 +390,7 @@ fn cmd_run(args: RunArgs) {
     // (base seed は /base_seed と seed_pointers 経由で execution_hash に残る)．
     let parent = Run::start(
         RunOptions::new(EXPERIMENT, "run")
+            .scratch(scratch)
             .repo_id(REPO_ID)
             .domain(DOMAIN)
             .results_root(&args.output_dir)
@@ -447,6 +453,7 @@ fn cmd_run(args: RunArgs) {
             run_idx,
             &lineage,
             &mut stage,
+            scratch,
         );
         print_run_line(run_idx + 1, runs, seed, &result);
         last = Some(result);
@@ -490,7 +497,7 @@ struct SweepParameters {
     base_seed: u64,
 }
 
-fn cmd_sweep(args: SweepArgs) {
+fn cmd_sweep(args: SweepArgs, scratch: bool) {
     let decision_mode = parse_decision_mode(&args.decision_mode).unwrap_or_else(|e| panic!("{e}"));
     let locale = parse_locale(&args.locale).unwrap_or_else(|e| panic!("{e}"));
 
@@ -509,6 +516,7 @@ fn cmd_sweep(args: SweepArgs) {
     // 親 run: グリッド定義そのものを parameters に持つ．個別セルの指標は書かない．
     let parent = Run::start(
         RunOptions::new(EXPERIMENT, "sweep")
+            .scratch(scratch)
             .repo_id(REPO_ID)
             .domain(DOMAIN)
             .results_root(&args.output_dir)
@@ -587,6 +595,7 @@ fn cmd_sweep(args: SweepArgs) {
                 // 同一セルの繰り返しは無いので replicate_index は 0．
                 let mut child = Run::start(
                     RunOptions::new(EXPERIMENT, "sweep-point")
+                        .scratch(scratch)
                         .repo_id(REPO_ID)
                         .domain(DOMAIN)
                         .results_root(&args.output_dir)
@@ -664,12 +673,13 @@ struct CulturalParameters {
     base_seed: u64,
 }
 
-fn cmd_cultural_compare(args: CulturalCompareArgs) {
+fn cmd_cultural_compare(args: CulturalCompareArgs, scratch: bool) {
     let decision_mode = parse_decision_mode(&args.decision_mode).unwrap_or_else(|e| panic!("{e}"));
     let runs = args.runs.max(1);
 
     let parent = Run::start(
         RunOptions::new(EXPERIMENT, "cultural-compare")
+            .scratch(scratch)
             .repo_id(REPO_ID)
             .domain(DOMAIN)
             .results_root(&args.output_dir)
@@ -746,6 +756,7 @@ fn cmd_cultural_compare(args: CulturalCompareArgs) {
                 run_idx,
                 &lineage,
                 &mut stage,
+                scratch,
             );
             print_run_line(run_idx + 1, runs, seed, &result);
         }
@@ -761,7 +772,7 @@ fn cmd_cultural_compare(args: CulturalCompareArgs) {
 // reproduce
 // --------------------------------------------------------------------------- //
 
-fn cmd_reproduce(_args: ReproduceArgs) {
+fn cmd_reproduce(_args: ReproduceArgs, _scratch: bool) {
     println!("The SEM β̃ estimation + Fig.1 path-diagram reproduction lives in the Python tooling:");
     println!();
     println!("  uv run fujimura-tools fit-sem");
@@ -784,13 +795,14 @@ fn cmd_reproduce(_args: ReproduceArgs) {
 
 fn main() {
     let cli = Cli::parse();
+    let scratch = cli.scratch;
     if let Some(host) = cli.ollama_host.as_deref() {
         std::env::set_var("OLLAMA_HOST", host);
     }
     match cli.command {
-        Commands::Run(args) => cmd_run(args),
-        Commands::Sweep(args) => cmd_sweep(args),
-        Commands::CulturalCompare(args) => cmd_cultural_compare(args),
-        Commands::Reproduce(args) => cmd_reproduce(args),
+        Commands::Run(args) => cmd_run(args, scratch),
+        Commands::Sweep(args) => cmd_sweep(args, scratch),
+        Commands::CulturalCompare(args) => cmd_cultural_compare(args, scratch),
+        Commands::Reproduce(args) => cmd_reproduce(args, scratch),
     }
 }

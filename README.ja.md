@@ -54,6 +54,11 @@ uv run fujimura-tools show-experiment-settings # 実験条件と LLM ブロッ�
 uv run fujimura-tools reproduce                # 図 1 相当パス図 + B1--B5 照合
 ```
 
+
+## Scratch run
+
+開発中・デバッグ中・動作確認の実行には `--scratch` を付ける．run は `results/_scratch/` に作られ，同期されない．最新の scratch run は `runvault path --scratch` で取得できる．
+
 ## 出力
 
 実行結果は [runvault](https://github.com/akitenkrad/rs-runvault) で記録する．run 1 本が

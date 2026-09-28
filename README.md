@@ -54,6 +54,11 @@ uv run fujimura-tools show-experiment-settings # conditions + the LLM block and 
 uv run fujimura-tools reproduce                # Fig.1-style path diagram + B1--B5 reconciliation
 ```
 
+
+## Scratch runs
+
+Use `--scratch` for development, debugging, and smoke-test runs. Scratch runs are created under `results/_scratch/`, are never synced to the vault, and the latest scratch run can be located with `runvault path --scratch`.
+
 ## Outputs
 
 Runs are recorded with [runvault](https://github.com/akitenkrad/rs-runvault): one run is one directory under `results/fujimura-silence/`, named and hashed by runvault. There is no timestamped directory and no `results/latest` symlink.
