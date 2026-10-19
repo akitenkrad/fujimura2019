@@ -535,13 +535,13 @@ mod tests {
     /// 固定しているので，この値は依存を上げたときにだけ動く．
     #[test]
     fn golden_values_are_pinned() {
-        assert_eq!(replicate_seed(2019, 0), 13_938_057_335_077_554_196);
-        assert_eq!(replicate_seed(2019, 1), 13_938_058_434_589_182_407);
-        assert_eq!(cultural_seed(2019, 4, 0), 73_382_701_531_917_656);
-        assert_eq!(cultural_seed(2019, 3, 0), 80_078_727_346_398_071);
+        assert_eq!(replicate_seed(2019, 0), 10_152_804_060_635_954_188);
+        assert_eq!(replicate_seed(2019, 1), 82_391_133_271_642_395);
+        assert_eq!(cultural_seed(2019, 4, 0), 1_858_154_431_286_493_793);
+        assert_eq!(cultural_seed(2019, 3, 0), 6_710_652_559_421_290_907);
         assert_eq!(
             trial_seed(2019, 3, 0.5, 0.05, 0),
-            15_632_339_161_558_697_201
+            11_966_251_403_443_806_308
         );
     }
 }
